@@ -1,0 +1,93 @@
+services:
+  kafka:
+    networks:
+      - dev
+    image: apache/kafka:4.0.1
+    restart: on-failure
+    ports:
+      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:9093:9093"
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_LISTENERS=LOCALHOST://0.0.0.0:9092,DOCKER://0.0.0.0:9093,CONTROLLER://localhost:9094
+      - KAFKA_ADVERTISED_LISTENERS=LOCALHOST://localhost:9092,DOCKER://kafka:9093
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9094
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,LOCALHOST:PLAINTEXT,DOCKER:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=DOCKER
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_NUM_PARTITIONS=3
+    healthcheck:
+      test: ["CMD", "nc", "-w", "1", "-vz", "localhost", "9092"]
+      interval: 5s
+      timeout: 2s
+      retries: 2
+      start_period: 10s
+
+  kafka-ui:
+    networks:
+      - dev
+    depends_on:
+      kafka:
+        condition: service_healthy
+    image: provectuslabs/kafka-ui
+    ports:
+      - "127.0.0.1:8085:8080"
+    restart: always
+    environment:
+      - LOGGING_LEVEL_ROOT=INFO
+      - KAFKA_CLUSTERS_0_NAME=user-interactions-faker
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9093
+
+  minio:
+    networks:
+      - dev
+    image: minio/minio:latest
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${AWS_ACCESS_KEY_ID}
+      - MINIO_ROOT_PASSWORD=${AWS_SECRET_ACCESS_KEY}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 10s
+
+  postgres:
+    image: postgres:14
+    networks:
+      - dev
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./.dev/postgres/:/docker-entrypoint-initdb.d/:ro
+    healthcheck:
+      test:
+        - CMD
+        - /bin/sh
+        - -c
+        - "timeout 1 bash -c '< /dev/tcp/localhost/5432'"
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 2s
+
+networks:
+  dev:
+
+volumes:
+  minio_data:
+  postgres:
